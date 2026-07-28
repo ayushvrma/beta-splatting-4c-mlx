@@ -36,17 +36,21 @@ def evaluate(args) -> dict:
           f"downscale={args.downscale}")
 
     model = BetaModel(sh_degree=args.sh_degree, sb_number=args.sb_number,
-                      color_channels=3)
+                      color_channels=args.color_channels)
     model.load_ply(args.ply)
     n_prim = int(model._xyz.shape[0])
-    print(f"[model] {n_prim} primitives")
+    print(f"[model] {n_prim} primitives, C={args.color_channels}")
 
     cams = load_nerf_synthetic(args.scene, split=args.split,
                                downscale=args.downscale, white_bg=True,
-                               max_cameras=args.max_cameras)
+                               max_cameras=args.max_cameras,
+                               channels=args.color_channels)
     print(f"[data] {len(cams)} views at {cams[0].width}x{cams[0].height}")
 
-    bg = mx.array([1.0, 1.0, 1.0])
+    if args.color_channels == 4:
+        bg = mx.array([1.0, 1.0, 1.0, 0.0])
+    else:
+        bg = mx.array([1.0, 1.0, 1.0])
 
     per_view = []
     for i, cam in enumerate(cams):
@@ -132,6 +136,7 @@ def parse_args():
     p.add_argument("--downscale", type=int, default=8)
     p.add_argument("--sh-degree", type=int, default=0)
     p.add_argument("--sb-number", type=int, default=2)
+    p.add_argument("--color-channels", type=int, default=3, choices=[3, 4])
     p.add_argument("--chunk-size", type=int, default=256)
     p.add_argument("--max-cameras", type=int, default=None)
     p.add_argument("--out-json", default=None)

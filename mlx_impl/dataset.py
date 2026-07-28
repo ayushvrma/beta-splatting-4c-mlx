@@ -26,19 +26,31 @@ class Camera:
     K: mx.array         # (3, 3) intrinsics
     width: int
     height: int
-    image: mx.array     # (H, W, 3) RGB in [0,1], alpha-composited over bg
+    image: mx.array     # (H, W, C) — C=3 alpha-composited over bg, C=4 raw RGBA
     fx: float
     fy: float
     cx: float
     cy: float
 
 
-def _load_image(path: str, target_wh: tuple | None, white_bg: bool) -> np.ndarray:
-    """Return an RGB image in [0, 1] with alpha composited over the bg."""
+def _load_image(path: str, target_wh: tuple | None, white_bg: bool,
+                channels: int = 3) -> np.ndarray:
+    """Load a NeRF-synthetic frame.
+
+    channels=3: alpha-composited over bg, returns (H, W, 3).
+    channels=4: raw RGBA, no composition, returns (H, W, 4). Alpha is the
+        pixel-wise object mask from the source PNG; RGB is left as-is.
+    """
     im = Image.open(path)
     if target_wh is not None and im.size != target_wh:
         im = im.resize(target_wh, Image.LANCZOS)
     arr = np.asarray(im).astype(np.float32) / 255.0
+    if channels == 4:
+        if arr.shape[-1] == 3:
+            alpha = np.ones(arr.shape[:2] + (1,), dtype=np.float32)
+            arr = np.concatenate([arr, alpha], axis=-1)
+        return arr  # (H, W, 4)
+    # channels==3: composite over bg.
     if arr.shape[-1] == 4:
         rgb = arr[..., :3]
         alpha = arr[..., 3:4]
@@ -53,6 +65,7 @@ def load_nerf_synthetic(
     downscale: int = 4,
     white_bg: bool = True,
     max_cameras: int | None = None,
+    channels: int = 3,
 ) -> List[Camera]:
     """Load a NeRF-synthetic scene. Returns list of Camera.
 
@@ -84,7 +97,7 @@ def load_nerf_synthetic(
     cams: List[Camera] = []
     for fr in frames:
         img_path = os.path.join(root, fr["file_path"] + ".png")
-        arr = _load_image(img_path, (W, H), white_bg)                 # (H, W, 3)
+        arr = _load_image(img_path, (W, H), white_bg, channels=channels)  # (H, W, C)
 
         # NeRF-synthetic transform_matrix is c2w in OpenGL convention
         # (camera looks down -z). We want a viewmat in world→cam with the

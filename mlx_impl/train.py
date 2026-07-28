@@ -110,13 +110,15 @@ def train(args):
     t0 = time.time()
     cams = load_nerf_synthetic(args.scene, split="train",
                                downscale=args.downscale, white_bg=True,
-                               max_cameras=args.max_cameras)
+                               max_cameras=args.max_cameras,
+                               channels=args.color_channels)
     print(f"[data] loaded {len(cams)} training cameras "
-          f"at {cams[0].width}x{cams[0].height} in {time.time()-t0:.1f}s")
+          f"at {cams[0].width}x{cams[0].height} in {time.time()-t0:.1f}s "
+          f"(C={args.color_channels})")
 
     # --- Init model + optimizer ------------------------------------------
     model = BetaModel(sh_degree=args.sh_degree, sb_number=args.sb_number,
-                      color_channels=3)
+                      color_channels=args.color_channels)
     if args.resume:
         print(f"[resume] loading {args.resume}")
         model.load_ply(args.resume)
@@ -128,7 +130,13 @@ def train(args):
     opt = MutableAdam(_param_lrs(spatial_lr_scale=1.0))
     opt.init_state(model.parameters())
 
-    background = mx.array([1.0, 1.0, 1.0])       # white bg matches lego alpha-composite
+    # Background: opaque white for 3c matches lego alpha-composited GT.
+    # For 4c, RGB=white and A=0 so the "empty" pixels get alpha=0, matching
+    # the raw PNG alpha channel (background is transparent).
+    if args.color_channels == 4:
+        background = mx.array([1.0, 1.0, 1.0, 0.0])
+    else:
+        background = mx.array([1.0, 1.0, 1.0])
     model.background = background
 
     # --- Training loop ---------------------------------------------------
@@ -244,6 +252,9 @@ def parse_args():
     p.add_argument("--iterations", type=int, default=1000)
     p.add_argument("--sh-degree", type=int, default=0)
     p.add_argument("--sb-number", type=int, default=2)
+    p.add_argument("--color-channels", type=int, default=3, choices=[3, 4],
+                   help="3 for RGB (default); 4 for RGBA — the research direction "
+                        "in docs/rgba_extension.md (Design A2).")
     p.add_argument("--chunk-size", type=int, default=512)
     p.add_argument("--max-cameras", type=int, default=None)
     p.add_argument("--log-every", type=int, default=50)
