@@ -34,9 +34,14 @@ from sklearn.neighbors import NearestNeighbors
 def _softplus(x: mx.array, beta: float = 1.0) -> mx.array:
     """Numerically stable softplus with slope parameter beta.
 
-    Matches torch.nn.functional.softplus(x, beta): (1/beta) * log(1 + exp(beta * x))
+    Matches torch.nn.functional.softplus(x, beta): (1/beta) * log(1 + exp(beta * x)).
+    Rewritten as `max(z, 0) + log1p(exp(-|z|))` (with z = beta * x) so exp() never
+    overflows — the naive `log1p(exp(beta * x))` produces inf then NaN as soon as
+    beta*x rises above ~700 (fp32 exp overflow). Refinement runs can push SB
+    color params into that regime and cascade to NaN loss.
     """
-    return (1.0 / beta) * mx.log1p(mx.exp(beta * x))
+    z = beta * x
+    return (mx.maximum(z, 0.0) + mx.log1p(mx.exp(-mx.abs(z)))) / beta
 
 
 def _inverse_sigmoid(x: np.ndarray) -> np.ndarray:
