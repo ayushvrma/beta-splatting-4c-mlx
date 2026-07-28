@@ -61,9 +61,22 @@ def evaluate(args) -> dict:
         gt_nchw = _to_nchw(gt)
         p = float(psnr(img_nchw, gt_nchw))
         s = float(ssim(img_nchw, gt_nchw))
-        per_view.append({"idx": i, "psnr": p, "ssim": s})
+        entry = {"idx": i, "psnr": p, "ssim": s}
+        # For 4-channel, also break out the RGB-only PSNR and alpha-MSE so we
+        # can tell whether the added channel actually learns something.
+        if args.color_channels == 4:
+            rgb_nchw = _to_nchw(img_c[..., :3])
+            gt_rgb_nchw = _to_nchw(gt[..., :3])
+            p_rgb = float(psnr(rgb_nchw, gt_rgb_nchw))
+            alpha_mse = float(((img_c[..., 3] - gt[..., 3]) ** 2).mean())
+            entry["psnr_rgb"] = p_rgb
+            entry["alpha_mse"] = alpha_mse
+        per_view.append(entry)
         if (i + 1) % 20 == 0 or i == 0:
-            print(f"[eval] view {i+1:3d}/{len(cams)}  PSNR={p:.2f}  SSIM={s:.4f}",
+            extra = ""
+            if args.color_channels == 4:
+                extra = f"  PSNR_rgb={entry['psnr_rgb']:.2f}  αMSE={entry['alpha_mse']:.4f}"
+            print(f"[eval] view {i+1:3d}/{len(cams)}  PSNR={p:.2f}  SSIM={s:.4f}{extra}",
                   flush=True)
 
         # Free per-view arrays before the next projection allocates.
@@ -77,6 +90,7 @@ def evaluate(args) -> dict:
         "scene": args.scene,
         "split": args.split,
         "downscale": args.downscale,
+        "color_channels": args.color_channels,
         "n_primitives": n_prim,
         "n_views": len(cams),
         "psnr": {
@@ -94,6 +108,19 @@ def evaluate(args) -> dict:
         "elapsed_s": time.time() - t0,
         "per_view": per_view,
     }
+    if args.color_channels == 4:
+        psnr_rgbs = np.array([v["psnr_rgb"] for v in per_view])
+        alpha_mses = np.array([v["alpha_mse"] for v in per_view])
+        summary["psnr_rgb_only"] = {
+            "mean": float(psnr_rgbs.mean()),
+            "min": float(psnr_rgbs.min()),
+            "max": float(psnr_rgbs.max()),
+        }
+        summary["alpha_mse"] = {
+            "mean": float(alpha_mses.mean()),
+            "min": float(alpha_mses.min()),
+            "max": float(alpha_mses.max()),
+        }
 
     print("")
     print(f"[summary] mean PSNR {summary['psnr']['mean']:.2f}   "
@@ -102,6 +129,9 @@ def evaluate(args) -> dict:
     print(f"[summary] PSNR min={summary['psnr']['min']:.2f}  "
           f"max={summary['psnr']['max']:.2f}  "
           f"median={summary['psnr']['median']:.2f}")
+    if args.color_channels == 4:
+        print(f"[summary] RGB-only PSNR mean {summary['psnr_rgb_only']['mean']:.2f}  "
+              f"| αMSE mean {summary['alpha_mse']['mean']:.4f}")
 
     if args.out_json:
         os.makedirs(os.path.dirname(args.out_json) or ".", exist_ok=True)

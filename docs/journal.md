@@ -6,6 +6,52 @@ Entry format: date, one-line summary, then whatever detail belongs on the record
 
 ---
 
+## 2026-07-28 — Extended refinement (v5): test PSNR 30.77; NaN loss appeared but model kept improving
+
+Ran another 5000 refinement iters on top of v4 (so 8000 total refine + 1000 densify) at 100×100. Wall time 17.6 min, 5.5→4.7 it/s.
+
+**Test-set trajectory (200 lego test views, held-out eval):**
+
+| PLY | Iter total | Test PSNR | Test SSIM | Δ vs prev |
+|---|---|---|---|---|
+| lego_v4.ply | 4000 (1k+3k) | 28.57 | 0.9553 | — |
+| v5_iter2000 | 6000 | 29.99 | 0.9657 | +1.42 |
+| v5_iter3000 | 7000 | 30.31 | 0.9678 | +0.32 |
+| lego_v5.ply | 9000 | **30.77** | **0.9709** | +0.46 |
+
+Diminishing returns kick in around iter 3000-of-v5 (per-1k gain drops from +1.42 to +0.32). Refinement is a real lever but not linear.
+
+**Best single-view test PSNR: 34.18.** Worst three (v009, v010, v011) all cluster on the same viewpoint neighborhood — same failure mode as v4. Save-worst-K saved side-by-sides to `out/eval_v5/`.
+
+**NaN loss episode.** From iter ~3800 to end (iter 5000), the printed `loss=nan`. But renders remained finite (train-view PSNR 32.42, test PSNR 30.77 both plausible) and parameter tensors stayed usable. Two hypotheses to check:
+
+1. **SSIM `(2·σ₁₂ + C₂) / (σ₁² + σ₂² + C₂)` numerator/denominator NaN** when a constant-color region hits σ² = 0. C₁/C₂ should guard against this, but maybe not with our fp32 clip at 0.999 producing near-1 alphas.
+2. **`mx.power(base, exponent)` in the beta kernel** where `base` can be tiny (~1e-20) and `exponent` up to 4·exp(β). Boundary edge that autograd can NaN through.
+
+Fix will be a numerical guard, not a semantic change. Deferred — model still trains through it.
+
+**Files touched this session:** `mlx_impl/eval/held_out.py` (per-view breakdown for 4c models), `mlx_impl/tests/probe_memory.py` (new — diagnostic for the 200×200 blow-up, not yet run). Everything else unchanged.
+
+## 2026-07-28 — Repo split; MLX work migrated to paper-implenentations
+
+The MLX port now lives in its own repo `paper-implenentations/beta-splatting-mlx/` (nested checkout at `./beta-splatting-mlx/` in this project, gitignored). Rationale: MLX work is diverging enough from the CUDA fork that it deserves standalone history + a clean import path for future paper implementations.
+
+**What moved:** `mlx_impl/`, MLX-relevant docs (project_journal, journal, mlx_port_plan, rgba_extension, method_dbs, apple_silicon_options, inference_optimization, project_overview), the reference PLY (`artifacts/lego_v4.ply`), one sample render, per-view eval JSON summaries.
+
+**What stayed here:** the CUDA-side code (`submodules/`, `scene/`, `arguments/`, `utils/`, top-level `train.py`, `render.py`, etc.), so the original DBS fork keeps working.
+
+**Duplicate for now:** `mlx_impl/` still exists in this repo — deletion is deferred so a running training process doesn't break. Future MLX edits happen in `beta-splatting-mlx/` and get synced back only if needed.
+
+**Pushes:** new repo at `https://github.com/ayushvrma/paper-implenentations`. Old origin (`ayushvrma/beta-splatting-4c`) is no longer the push target for MLX work.
+
+## 2026-07-28 — 4-channel RGBA plumbing wired end-to-end
+
+`--color-channels {3,4}` now flows through `train.py` and `eval/held_out.py`. `dataset.py:load_nerf_synthetic(..., channels=4)` returns raw HWC-4 RGBA (no bg-composite); channels=3 keeps the composited path. Background is sized to match: `[1,1,1]` for 3c, `[1,1,1,0]` for 4c (transparent bg matches raw PNG alpha).
+
+New smoke test `mlx_impl/tests/test_rgba.py` covers: shapes (sh0=(N,1,4), sb=(N,K,7)), forward render (returns HxWx4 with finite alpha), and autograd through L1 + SSIM with C=4 producing non-zero gradients on all trainable groups. Passes 3/3 on lego at 16×16 with 32–128 primitives.
+
+Not yet: an actual 4c training run on lego. Deferred until the current 100×100 refinement finishes (memory contention).
+
 ## 2026-07-28 — Held-out test-set eval; +2.59 dB from refinement generalizes
 
 First honest, no-cherry-picking numbers on the lego test split (200 views, 100×100).

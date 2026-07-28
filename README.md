@@ -15,9 +15,10 @@ Track A trains end-to-end on lego at 100×100:
 
 | PLY | Primitives | Total iters | Train PSNR | **Test PSNR** | **Test SSIM** |
 |---|---|---|---|---|---|
-| `artifacts/lego_v4.ply` | 3827 | 4000 (1k densify + 3k refine) | 30.34 | **28.57** | 0.9553 |
+| `artifacts/lego_v4.ply` | 3827 | 4000 (1k densify + 3k refine) | 30.34 | 28.57 | 0.9553 |
+| `artifacts/lego_v5.ply` | 3827 | 9000 (1k densify + 8k refine) | 32.42 | **30.77** | **0.9709** |
 
-Real 3D reconstruction, on-device, no cloud. 15 min end-to-end training on M4 Pro / 24 GB.
+Real 3D reconstruction, on-device, no cloud. ~33 min end-to-end for v5 on M4 Pro / 24 GB.
 
 Higher resolutions (200×200+) need pixel-tiling in the rasterizer — currently blows the 24 GB memory budget without it. That work is next.
 
@@ -109,6 +110,27 @@ python -m mlx_impl.eval.held_out \
     --out-json eval/my_result.json \
     --save-worst 3
 ```
+
+Add `--color-channels 4` to eval a 4c-trained PLY; the summary then also
+reports `psnr_rgb_only` (RGB-channel PSNR alone) and `alpha_mse`.
+
+## 4-channel (RGBA) training
+
+Design in `docs/rgba_extension.md` (Design A2 — alpha as a 4th SB intensity,
+multiplicative with geometric opacity). Plumbing is wired end-to-end and
+smoke-tested (`python -m mlx_impl.tests.test_rgba`). To train:
+
+```bash
+python -m mlx_impl.train --scene lego --downscale 8 \
+    --color-channels 4 \
+    --iterations 1000 --cap-max 6000 \
+    --save-every 500 --output out/lego_4c.ply
+```
+
+The dataset loader returns raw HWC-4 RGBA when `--color-channels 4` (no
+background compositing — the alpha channel is the pixel-wise object mask
+from the source PNG); background becomes `[1, 1, 1, 0]` so empty pixels get
+alpha=0.
 
 ## Design notes
 
