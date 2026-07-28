@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv*/
+.DS_Store
+
+# Local training outputs (large; regenerate with train.py)
+out/
+outputs/
+logs/
+
+# Local datasets (fetch separately)
+lego/
+lego_ns/
+data/
+
+# Local eval side-by-sides (regenerate with mlx_impl.eval.held_out)
+out/eval/
+
+# Keep tracked: artifacts/ (reference model), eval/*.json (summaries)

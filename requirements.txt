@@ -1,0 +1,5 @@
+mlx>=0.31
+numpy
+plyfile
+Pillow
+scikit-learn
